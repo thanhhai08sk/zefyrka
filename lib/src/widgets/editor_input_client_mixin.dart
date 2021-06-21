@@ -60,7 +60,7 @@ mixin RawEditorStateTextInputClientMixin on EditorState
           inputType: TextInputType.multiline,
           readOnly: widget.readOnly,
           obscureText: false,
-          autocorrect: true,
+          autocorrect: false,
           inputAction: TextInputAction.newline,
           keyboardAppearance: widget.keyboardAppearance,
           textCapitalization: widget.textCapitalization,
