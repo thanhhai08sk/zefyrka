@@ -591,7 +591,6 @@ class _TextSelectionHandleOverlayState
                 context,
                 type,
                 lineHeight,
-                null,
               ),
             ),
           ),
