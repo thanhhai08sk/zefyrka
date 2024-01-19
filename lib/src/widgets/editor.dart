@@ -13,7 +13,7 @@ import 'package:zefyrka/src/widgets/baseline_proxy.dart';
 import 'package:zefyrka/zefyrka.dart';
 
 import '../rendering/editor.dart';
-import '../services/keyboard.dart';
+import '../services/keyboard.dart' as keyboard;
 import 'controller.dart';
 import 'cursor.dart';
 import 'editable_text_block.dart';
@@ -126,6 +126,9 @@ class ZefyrEditor extends StatefulWidget {
   /// the text field from the clipboard.
   final bool enableInteractiveSelection;
 
+  /// Whether to enable auto-suggestions in the system keyboard (where applicable).
+  final bool enableSuggestions;
+
   /// The minimum height to be occupied by this editor.
   ///
   /// This only has effect if [scrollable] is set to `true` and [expands] is
@@ -209,6 +212,7 @@ class ZefyrEditor extends StatefulWidget {
     this.showCursor = true,
     this.readOnly = false,
     this.enableInteractiveSelection = true,
+    this.enableSuggestions = false,
     this.minHeight,
     this.maxHeight,
     this.scrollAreaMinHeight,
@@ -306,7 +310,7 @@ class _ZefyrEditorState extends State<ZefyrEditor>
     final child = RawEditor(
       key: _editorKey,
       controller: widget.controller,
-      focusNode: widget.focusNode!,
+      focusNode: widget.focusNode ?? FocusNode(),
       scrollController: widget.scrollController,
       clipboardController: widget.clipboardController,
       scrollable: widget.scrollable,
@@ -315,6 +319,7 @@ class _ZefyrEditorState extends State<ZefyrEditor>
       showCursor: widget.showCursor,
       readOnly: widget.readOnly,
       enableInteractiveSelection: widget.enableInteractiveSelection,
+      enableSuggestions: widget.enableSuggestions,
       minHeight: widget.minHeight,
       maxHeight: widget.maxHeight,
       scrollAreaMinHeight: widget.scrollAreaMinHeight,
@@ -359,7 +364,7 @@ class _ZefyrEditorSelectionGestureDetectorBuilder
   void onForcePressStart(ForcePressDetails details) {
     super.onForcePressStart(details);
     if (delegate.selectionEnabled && shouldShowSelectionToolbar) {
-      editor!.showToolbar();
+      editor.showToolbar();
     }
   }
 
@@ -374,7 +379,7 @@ class _ZefyrEditorSelectionGestureDetectorBuilder
       switch (Theme.of(_state.context).platform) {
         case TargetPlatform.iOS:
         case TargetPlatform.macOS:
-          renderEditor!.selectPositionAt(
+          renderEditor.selectPositionAt(
             from: details.globalPosition,
             cause: SelectionChangedCause.longPress,
           );
@@ -383,7 +388,7 @@ class _ZefyrEditorSelectionGestureDetectorBuilder
         case TargetPlatform.fuchsia:
         case TargetPlatform.linux:
         case TargetPlatform.windows:
-          renderEditor!.selectWordsInRange(
+          renderEditor.selectWordsInRange(
             from: details.globalPosition - details.offsetFromOrigin,
             to: details.globalPosition,
             cause: SelectionChangedCause.longPress,
@@ -394,17 +399,17 @@ class _ZefyrEditorSelectionGestureDetectorBuilder
   }
 
   void _launchUrlIfNeeded(TapUpDetails details) {
-    final pos = renderEditor!.getPositionForOffset(details.globalPosition);
-    final result = editor!.widget.controller.document.lookupLine(pos.offset);
+    final pos = renderEditor.getPositionForOffset(details.globalPosition);
+    final result = editor.widget.controller.document.lookupLine(pos.offset);
     if (result.node == null) return;
     final line = result.node as LineNode;
     final segmentResult = line.lookup(result.offset);
     if (segmentResult.node == null) return;
     final segment = segmentResult.node as LeafNode;
     if (segment.style.contains(NotusAttribute.link) &&
-        editor!.widget.onLaunchUrl != null) {
-      if (editor!.widget.readOnly) {
-        editor!.widget
+        editor.widget.onLaunchUrl != null) {
+      if (editor.widget.readOnly) {
+        editor.widget
             .onLaunchUrl!(segment.style.get(NotusAttribute.link)!.value!);
       } else {
         // TODO: Implement a toolbar to display the URL and allow to launch it.
@@ -415,7 +420,7 @@ class _ZefyrEditorSelectionGestureDetectorBuilder
 
   @override
   void onSingleTapUp(TapUpDetails details) {
-    editor!.hideToolbar();
+    editor.hideToolbar();
 
     // TODO: Explore if we can forward tap up events to the TextSpan gesture detector
     _launchUrlIfNeeded(details);
@@ -429,13 +434,14 @@ class _ZefyrEditorSelectionGestureDetectorBuilder
             case PointerDeviceKind.stylus:
             case PointerDeviceKind.invertedStylus:
               // Precise devices should place the cursor at a precise position.
-              renderEditor!.selectPosition(cause: SelectionChangedCause.tap);
+              renderEditor.selectPosition(cause: SelectionChangedCause.tap);
               break;
             case PointerDeviceKind.touch:
+            case PointerDeviceKind.trackpad:
             case PointerDeviceKind.unknown:
               // On macOS/iOS/iPadOS a touch tap places the cursor at the edge
               // of the word.
-              renderEditor!.selectWordEdge(cause: SelectionChangedCause.tap);
+              renderEditor.selectWordEdge(cause: SelectionChangedCause.tap);
               break;
           }
           break;
@@ -443,7 +449,7 @@ class _ZefyrEditorSelectionGestureDetectorBuilder
         case TargetPlatform.fuchsia:
         case TargetPlatform.linux:
         case TargetPlatform.windows:
-          renderEditor!.selectPosition(cause: SelectionChangedCause.tap);
+          renderEditor.selectPosition(cause: SelectionChangedCause.tap);
           break;
       }
     }
@@ -458,7 +464,7 @@ class _ZefyrEditorSelectionGestureDetectorBuilder
       switch (Theme.of(_state.context).platform) {
         case TargetPlatform.iOS:
         case TargetPlatform.macOS:
-          renderEditor!.selectPositionAt(
+          renderEditor.selectPositionAt(
             from: details.globalPosition,
             cause: SelectionChangedCause.longPress,
           );
@@ -467,7 +473,7 @@ class _ZefyrEditorSelectionGestureDetectorBuilder
         case TargetPlatform.fuchsia:
         case TargetPlatform.linux:
         case TargetPlatform.windows:
-          renderEditor!.selectWord(cause: SelectionChangedCause.longPress);
+          renderEditor.selectWord(cause: SelectionChangedCause.longPress);
           Feedback.forLongPress(_state.context);
           break;
       }
@@ -503,6 +509,7 @@ class RawEditor extends StatefulWidget {
       paste: true,
       selectAll: true,
     ),
+    this.enableSuggestions = true,
     this.cursorStyle,
     this.showSelectionHandles = false,
     this.selectionControls,
@@ -593,6 +600,9 @@ class RawEditor extends StatefulWidget {
   ///
   ///  * [TextCapitalization], for a description of each capitalization behavior.
   final TextCapitalization textCapitalization;
+
+  /// Whether to enable text suggestions in the keyboard when typing.
+  final bool enableSuggestions;
 
   /// The maximum height this editor can have.
   ///
@@ -699,7 +709,7 @@ abstract class EditorState extends State<RawEditor> {
 
   set textEditingValue(TextEditingValue value);
 
-  RenderEditor? get renderEditor;
+  RenderEditor get renderEditor;
 
   EditorTextSelectionOverlay? get selectionOverlay;
 
@@ -729,7 +739,7 @@ class RawEditorState extends EditorState
   FloatingCursorController? _floatingCursorController;
 
   // Keyboard
-  late KeyboardListener _keyboardListener;
+  late keyboard.KeyboardListener _keyboardListener;
 
   // Selection overlay
   @override
@@ -760,8 +770,8 @@ class RawEditorState extends EditorState
   ///
   /// This property is typically used to notify the renderer of input gestures.
   @override
-  RenderEditor? get renderEditor =>
-      _editorKey.currentContext!.findRenderObject() as RenderEditor?;
+  RenderEditor get renderEditor =>
+      _editorKey.currentContext!.findRenderObject() as RenderEditor;
 
   /// Express interest in interacting with the keyboard.
   ///
@@ -832,7 +842,7 @@ class RawEditorState extends EditorState
     );
 
     // Keyboard
-    _keyboardListener = KeyboardListener(
+    _keyboardListener = keyboard.KeyboardListener(
       onCursorMovement: handleCursorMovement,
       onShortcut: handleShortcut,
       onDelete: handleDelete,
@@ -955,7 +965,7 @@ class RawEditorState extends EditorState
     // a new RenderEditableBox child. If we try to update selection overlay
     // immediately it'll not be able to find the new child since it hasn't been
     // built yet.
-    SchedulerBinding.instance!.addPostFrameCallback(
+    SchedulerBinding.instance.addPostFrameCallback(
         (Duration _) => _updateOrDisposeSelectionOverlayIfNeeded());
 //    _textChangedSinceLastCaretUpdate = true;
 
@@ -979,10 +989,11 @@ class RawEditorState extends EditorState
     openOrCloseConnection();
     _cursorController!
         .startOrStopCursorTimerIfNeeded(_hasFocus, widget.controller.selection);
-    _updateOrDisposeSelectionOverlayIfNeeded();
+    SchedulerBinding.instance.addPostFrameCallback(
+        (Duration _) => _updateOrDisposeSelectionOverlayIfNeeded());
     if (_hasFocus) {
       // Listen for changing viewInsets, which indicates keyboard showing up.
-      WidgetsBinding.instance!.addObserver(this);
+      WidgetsBinding.instance.addObserver(this);
       _showCaretOnScreen();
 //      _lastBottomViewInset = WidgetsBinding.instance.window.viewInsets.bottom;
 //      if (!_value.selection.isValid) {
@@ -990,7 +1001,7 @@ class RawEditorState extends EditorState
 //        _handleSelectionChanged(TextSelection.collapsed(offset: _value.text.length), renderEditable, null);
 //      }
     } else {
-      WidgetsBinding.instance!.removeObserver(this);
+      WidgetsBinding.instance.removeObserver(this);
       // TODO: teach editor about state of the toolbar and whether the user is in the middle of applying styles.
       //       this is needed because some buttons in toolbar can steal focus from the editor
       //       but we want to preserve the selection, maybe adjusting its style slightly.
@@ -1050,15 +1061,15 @@ class RawEditorState extends EditorState
     }
 
     _showCaretOnScreenScheduled = true;
-    SchedulerBinding.instance!.addPostFrameCallback((Duration _) {
+    SchedulerBinding.instance.addPostFrameCallback((Duration _) {
       _showCaretOnScreenScheduled = false;
 
       final viewport = RenderAbstractViewport.of(renderEditor)!;
       final editorOffset =
-          renderEditor!.localToGlobal(Offset(0.0, 0.0), ancestor: viewport);
+          renderEditor.localToGlobal(Offset(0.0, 0.0), ancestor: viewport);
       final offsetInViewport = _scrollController!.offset + editorOffset.dy;
 
-      final offset = renderEditor!.getOffsetToRevealCursor(
+      final offset = renderEditor.getOffsetToRevealCursor(
         _scrollController!.position.viewportDimension,
         _scrollController!.offset,
         offsetInViewport,
@@ -1256,6 +1267,82 @@ class RawEditorState extends EditorState
       TextEditingValue value, SelectionChangedCause cause) {
     textEditingValue = value;
   }
+
+  @override
+  void copySelection(SelectionChangedCause cause) {
+    final selection = textEditingValue.selection;
+    final plainText = textEditingValue.text;
+    if (selection.isCollapsed) {
+      return;
+    }
+    clipboardController.copy(widget.controller, plainText);
+    if (cause == SelectionChangedCause.toolbar) {
+      bringIntoView(textEditingValue.selection.extent);
+      hideToolbar();
+    }
+  }
+
+  @override
+  void cutSelection(SelectionChangedCause cause) {
+    final plainText = textEditingValue.text;
+    clipboardController.cut(widget.controller, plainText);
+    if (cause == SelectionChangedCause.toolbar) {
+      bringIntoView(textEditingValue.selection.extent);
+      hideToolbar();
+    }
+  }
+
+  @override
+  Future<void> pasteText(SelectionChangedCause cause) async {
+    clipboardController.paste(widget.controller, textEditingValue);
+    if (cause == SelectionChangedCause.toolbar) {
+      bringIntoView(textEditingValue.selection.extent);
+      hideToolbar();
+    }
+  }
+
+  @override
+  void selectAll(SelectionChangedCause cause) {
+    userUpdateTextEditingValue(
+      textEditingValue.copyWith(
+        selection: TextSelection(
+            baseOffset: 0, extentOffset: textEditingValue.text.length),
+      ),
+      cause,
+    );
+    if (cause == SelectionChangedCause.toolbar) {
+      bringIntoView(textEditingValue.selection.extent);
+    }
+  }
+
+  @override
+  void insertTextPlaceholder(Size size) {
+    // TODO: implement insertTextPlaceholder
+  }
+
+  @override
+  void removeTextPlaceholder() {
+    // TODO: implement removeTextPlaceholder
+  }
+
+  @override
+  void didChangeInputControl(
+      TextInputControl? oldControl, TextInputControl? newControl) {
+    // TODO: implement didChangeInputControl
+  }
+
+  @override
+  void performSelector(String selectorName) {
+    // TODO: implement performSelector
+  }
+
+  @override
+  void insertContent(KeyboardInsertedContent content) {
+    // TODO: implement insertContent
+  }
+
+  @override
+  bool get liveTextInputEnabled => false;
 }
 
 class _Editor extends MultiChildRenderObjectWidget {
